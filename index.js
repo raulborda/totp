@@ -10,11 +10,11 @@ let secret;
 
 app.get('/generate-qr', (req, res) => {
   secret = speakeasy.generateSecret({ length: 20 });
-  console.log("secret: ", secret);
+  //console.log("secret: ", secret);
   const otpauthUrl = speakeasy.otpauthURL({
     secret: secret.base32,
-    label: 'app:johndoe@gmail.com', 
-    issuer: 'empresa', 
+    label: 'app:raul@brocoly.ar', 
+    issuer: 'brocoly', 
     encoding: 'base32'
   });
   console.log("otpauthUrl: ", otpauthUrl)
@@ -55,6 +55,7 @@ app.post('/verify-totp', (req, res) => {
   }
 });
 
+//Ojo aqui... estoy generando un TOTP con las variables de secret que estan en memoria.
 app.get('/generate-totp', (req, res) => {
     if (!secret) {
       return res.status(400).send('Secret no definido. Generar QR primero.');
