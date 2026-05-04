@@ -2,66 +2,110 @@ import express from 'express';
 import speakeasy from 'speakeasy';
 import qrcode from 'qrcode';
 import qrcodeTerminal from 'qrcode-terminal';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 
 const app = express();
 app.use(express.json());
 
-let secret; 
+const DB_PATH = './db.json';
+
+function readDB() {
+  if (!existsSync(DB_PATH)) return {};
+  return JSON.parse(readFileSync(DB_PATH, 'utf8'));
+}
+
+function writeDB(data) {
+  writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+}
 
 app.get('/generate-qr', (req, res) => {
-  secret = speakeasy.generateSecret({ length: 20 });
-  //console.log("secret: ", secret);
+  const { user } = req.query;
+
+  if (!user) {
+    return res.status(400).json({ error: 'Parámetro "user" requerido' });
+  }
+
+  const db = readDB();
+
+  if (db[user]) {
+    return res.status(409).json({ error: `El usuario "${user}" ya tiene un secret registrado` });
+  }
+
+  const secret = speakeasy.generateSecret({ length: 20 });
   const otpauthUrl = speakeasy.otpauthURL({
     secret: secret.base32,
-    label: 'app:raul@brocoly.ar', 
-    issuer: 'brocoly', 
+    label: `app:${user}`,
+    issuer: 'brocoly',
     encoding: 'base32'
   });
-  console.log("otpauthUrl: ", otpauthUrl)
-  
-  //TODO: Guardar secret en BD
-  
-  qrcodeTerminal.generate(otpauthUrl, { small: true }, function (qrcode) {
-    console.log('QR');
-    console.log(qrcode);
+
+  db[user] = {
+    secret: secret.base32,
+    createdAt: new Date().toISOString()
+  };
+  writeDB(db);
+
+  qrcodeTerminal.generate(otpauthUrl, { small: true }, function (qr) {
+    console.log('QR para', user);
+    console.log(qr);
   });
 
+  const qrcodeUrl = `${req.protocol}://${req.get('host')}/qr/${encodeURIComponent(user)}`;
+
   qrcode.toDataURL(otpauthUrl, (err, data_url) => {
-    if (err) {
-      res.status(500).json({ error: 'Error generando QR' });
-    } else {
-      res.json({ secret: secret.base32, qrcode: data_url });
-    }
+    if (err) return res.status(500).json({ error: 'Error generando QR' });
+    res.json({ secret: secret.base32, qrcodeUrl, qrcode: data_url });
+  });
+});
+
+app.get('/qr/:user', (req, res) => {
+  const user = decodeURIComponent(req.params.user);
+  const db = readDB();
+
+  if (!db[user]) {
+    return res.status(404).json({ error: `Usuario "${user}" no encontrado.` });
+  }
+
+  const otpauthUrl = speakeasy.otpauthURL({
+    secret: db[user].secret,
+    label: `app:${user}`,
+    issuer: 'brocoly',
+    encoding: 'base32'
+  });
+
+  qrcode.toBuffer(otpauthUrl, (err, buffer) => {
+    if (err) return res.status(500).json({ error: 'Error generando QR' });
+    res.set('Content-Type', 'image/png');
+    res.send(buffer);
   });
 });
 
 app.post('/verify-totp', (req, res) => {
-  const { token } = req.body;
+  const { user, token } = req.body;
 
-  if (!secret) {
-    return res.status(400).send('Secret no definido. Generar QR primero.');
+  if (!user || !token) {
+    return res.status(400).json({ error: 'Parámetros "user" y "token" requeridos' });
+  }
+
+  if (!/^\d{6}$/.test(token)) {
+    return res.status(400).json({ error: 'El token debe ser un número de 6 dígitos' });
+  }
+
+  const db = readDB();
+
+  if (!db[user]) {
+    return res.status(404).json({ error: `Usuario "${user}" no encontrado. Generar QR primero.` });
   }
 
   const verified = speakeasy.totp.verify({
-    secret: secret.base32,
+    secret: db[user].secret,
     encoding: 'base32',
-    token: token
+    token,
+    window: 1
   });
 
-  if (verified) {
-    res.send('🤙🏼🤙🏼🤙🏼🤙🏼');
-  } else {
-    res.status(400).send('👎🏼👎🏼👎🏼👎🏼');
-  }
+  res.status(verified ? 200 : 400).json({ valid: verified });
 });
 
-//Ojo aqui... estoy generando un TOTP con las variables de secret que estan en memoria.
-app.get('/generate-totp', (req, res) => {
-    if (!secret) {
-      return res.status(400).send('Secret no definido. Generar QR primero.');
-    }
-    const token = speakeasy.totp({ secret: secret.base32, encoding: 'base32' });
-    res.json({ token });
-  });
 
 app.listen(3000, () => console.log('Server en port 3000...'));

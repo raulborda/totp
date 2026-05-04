@@ -1,133 +1,101 @@
 
 # Servidor de Autenticación TOTP
 
-Este repositorio contiene un servidor simple para implementar autenticación de dos factores (2FA) usando TOTP (Time-based One-Time Password).
+Servidor API REST con Express para implementar autenticación de dos factores (2FA) usando TOTP (Time-based One-Time Password).
 
-## Descripción
-
-Este proyecto implementa un servidor API REST con Express que permite:
-
-* Generar secretos TOTP y códigos QR para configurar aplicaciones autenticadoras
-* Verificar tokens TOTP proporcionados por el usuario
-* Generar tokens TOTP para pruebas
-
-El sistema utiliza el estándar TOTP, compatible con aplicaciones autenticadoras como Google Authenticator, Microsoft Authenticator, Authy, entre otras.
+Los usuarios y sus secrets se persisten en un archivo `db.json` local.
 
 ## Requisitos previos
 
 * Node.js (versión 14.x o superior)
-* npm (gestor de paquetes de Node.js)
+* npm
 
 ## Instalación
 
-1. Clonar este repositorio:
-   ```bash
-   git clone https://github.com/tuusuario/tu-repo-totp.git
-   cd tu-repo-totp
-   ```
-2. Instalar las dependencias:
-   ```bash
-   npm install
-   ```
-3. Iniciar el servidor:
-   ```bash
-   node index.js
-   ```
+```bash
+git clone https://github.com/tuusuario/tu-repo-totp.git
+cd tu-repo-totp
+npm install
+node index.js
+```
 
 El servidor se ejecutará en `http://localhost:3000`.
 
 ## Dependencias
 
-* [express](https://www.npmjs.com/package/express): Framework web  para Node.js
-* [speakeasy](https://www.npmjs.com/package/speakeasy): Implementación de TOTP y HOTP para autenticación de dos factores
+* [express](https://www.npmjs.com/package/express): Framework web para Node.js
+* [speakeasy](https://www.npmjs.com/package/speakeasy): Implementación de TOTP/HOTP
 * [qrcode](https://www.npmjs.com/package/qrcode): Generador de códigos QR
-* [qrcode-terminal](https://www.npmjs.com/package/qrcode-terminal): Muestra códigos QR en la terminal
+* [qrcode-terminal](https://www.npmjs.com/package/qrcode-terminal): Muestra el QR en la terminal al generar
 
-## Uso
+## Endpoints
 
-### Generar un código QR y secreto TOTP
+### Generar secret y QR
 
- **Endpoint** : `GET /generate-qr`
+**`GET /generate-qr?user=<email>`**
 
- **Descripción** : Genera un nuevo secreto TOTP y un código QR para configurar una aplicación autenticadora.
+Genera un nuevo secret TOTP para el usuario. Falla con 409 si el usuario ya existe en `db.json`.
 
- **Solicitud** :
-
-* Método: `GET`
-* URL: `http://localhost:3000/generate-qr`
-
- **Respuesta** :
+**Respuesta:**
 
 ```json
 {
   "secret": "K5BSIYSCPVBVALBWJI2G22ZVMZLVWMCB",
+  "qrcodeUrl": "http://localhost:3000/qr/raul%40brocoly.ar",
   "qrcode": "data:image/png;base64,..."
 }
 ```
 
-Usa una aplicación autenticadora como Google Authenticator, Microsoft Authenticator o Authy para escanear el código QR o ingresa el secreto manualmente.
+* `qrcodeUrl`: abrila en el browser para ver el QR directamente y escanearlo con la app autenticadora.
+* `qrcode`: imagen en base64, útil para embeber en un frontend.
+
+---
+
+### Ver QR en el browser
+
+**`GET /qr/:user`**
+
+Devuelve el QR como imagen PNG. Usá la `qrcodeUrl` del endpoint anterior para acceder.
+
+```
+http://localhost:3000/qr/raul%40brocoly.ar
+```
+
+---
 
 ### Verificar un token TOTP
 
- **Endpoint** : `POST /verify-totp`
+**`POST /verify-totp`**
 
- **Descripción** : Verifica si un token TOTP proporcionado es válido.
+Verifica si el token ingresado por el usuario es válido.
 
- **Solicitud** :
-
-* Método: `POST`
-* URL: `http://localhost:3000/verify-totp`
-* Contenido (JSON):
-  ```json
-  {  "token": "123456"}
-  ```
-
- **Respuestas posibles** :
-
-* `🤙🏼🤙🏼🤙🏼🤙🏼` (200 OK): El token es válido
-* `👎🏼👎🏼👎🏼👎🏼` (400 Bad Request): El token es inválido
-* `Secret no definido. Generar QR primero.` (400 Bad Request): No se ha generado un secreto todavía
-
-### Generar un token TOTP (para pruebas)
-
- **Endpoint** : `GET /generate-totp`
-
- **Descripción** : Genera un token TOTP actual basado en el secreto existente (útil para pruebas).
-
- **Solicitud** :
-
-* Método: `GET`
-* URL: `http://localhost:3000/generate-totp`
-
- **Respuesta** :
+**Body:**
 
 ```json
 {
+  "user": "raul@brocoly.ar",
   "token": "123456"
 }
 ```
 
-## Notas importantes
+**Respuestas:**
 
-* **SOLO PARA DESARROLLO** : Esta implementación almacena el secreto en memoria y no es persistente. Para un entorno de producción, deberías almacenar los secretos en una base de datos segura.
-* El código incluye un TODO para recordar implementar el almacenamiento del secreto en una base de datos.
-* Los secretos generados tienen una longitud de 20 bytes para mayor seguridad.
-* La URL de otpauth utiliza valores predeterminados (`app:johndoe@gmail.com` como etiqueta y `empresa` como emisor) que deberías personalizar según tu aplicación.
+```json
+{ "valid": true }   // 200 OK
+{ "valid": false }  // 400 Bad Request
+```
 
-## Seguridad
+El token debe ser un número de 6 dígitos. La verificación tolera ±30 segundos de desfase de reloj (`window: 1`).
 
-Para un entorno de producción, considera estas mejoras:
+---
 
-1. Implementar persistencia segura de los secretos (base de datos cifrada)
-2. Usar HTTPS para todas las comunicaciones
-3. Implementar limitación de intentos para prevenir ataques de fuerza bruta
-4. Personalizar los valores de etiqueta y emisor según tu aplicación
-5. Implementar un manejo adecuado de errores y registro de eventos
+## Flujo de uso
 
-## Postman Collection
+1. Llamar a `GET /generate-qr?user=raul@brocoly.ar`
+2. Abrir la `qrcodeUrl` en el browser y escanear el QR con Google Authenticator, Authy, etc.
+3. Verificar con `POST /verify-totp` usando el código que muestra la app.
 
-Una colección de Postman está disponible para probar los endpoints del servicio:
+## Notas
 
-## Licencia
-
-RauloCoin
+* `db.json` está en `.gitignore` — contiene secrets TOTP y no debe subirse al repo.
+* Esta implementación es para desarrollo/prototipo. Para producción, reemplazar `db.json` por una base de datos con los secrets cifrados.
